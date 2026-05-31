@@ -3,10 +3,13 @@ package com.elmensajero.demo.domain.service;
 import com.elmensajero.demo.domain.entity.Envio;
 import com.elmensajero.demo.domain.entity.HistorialEstado;
 import com.elmensajero.demo.domain.enums.EstadoEnvio;
+import com.elmensajero.demo.domain.exception.EnvioNotFoundException;
 import com.elmensajero.demo.domain.repository.EnvioRepository;
 import com.elmensajero.demo.domain.repository.HistorialEstadoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -37,5 +40,9 @@ public class TrackingService {
     public Envio buscarPorTracking(String numeroSeguimiento) {
         return envioRepo.findByNumeroSeguimiento(numeroSeguimiento)
                 .orElseThrow(() -> new EnvioNotFoundException(numeroSeguimiento));
+    }
+    @Transactional(readOnly = true)
+    public List<HistorialEstado> obtenerHistorial(Long envioId) {
+        return historialRepo.findByEnvioIdOrderByFechaCambioDesc(envioId);
     }
 }
