@@ -6,11 +6,13 @@ import jakarta.persistence.Embeddable;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Embeddable
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class Paquete {
@@ -25,6 +27,6 @@ public class Paquete {
     private Double anchocm;
     private Double altocm;
 
-    private String descripcion;     // contenido declarado
+    private String descripcion;
     private Boolean fragil = false;
 }

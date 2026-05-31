@@ -13,4 +13,12 @@ public enum TamanioPaquete {
         this.pesoMaximoKg = pesoMaximoKg;
         this.factorPrecio = factorPrecio;
     }
+
+    public double getPesoMaximoKg() {
+        return pesoMaximoKg;
+    }
+
+    public double getFactorPrecio() {
+        return factorPrecio;
+    }
 }
