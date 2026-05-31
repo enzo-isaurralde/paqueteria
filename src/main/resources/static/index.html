@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>El Mensajero - Cotizador Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400; vertical-align: middle; }
+        #map { height: 100%; min-height: 500px; border-radius: 0.75rem; z-index: 1; }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 124, 0, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(245, 124, 0, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 124, 0, 0); }
+        }
+        .suggestions { max-height: 200px; overflow-y: auto; }
+        .suggestion-item:hover { background-color: #f3f4f6; }
+        .route-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#000666', secondary: '#964900', surface: '#f8f9fa'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-surface font-sans text-gray-900">
+
+<nav class="bg-white shadow-sm sticky top-0 z-[1000]">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+        <div class="text-xl font-bold text-primary">El Mensajero</div>
+        <button class="bg-primary text-white px-6 py-2 rounded-lg font-semibold hover:opacity-90">Acceder</button>
+    </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-4 py-8">
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold text-primary mb-2">Cotizador de Envíos</h1>
+        <p class="text-gray-600">Ingresa direcciones exactas para una cotización precisa con rutas reales.</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[calc(100vh-200px)]">
+
+        <!-- Panel Izquierdo: Formulario -->
+        <div class="lg:col-span-4 flex flex-col gap-4 overflow-y-auto">
+
+            <!-- Direcciones -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+                <h2 class="text-lg font-semibold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined">location_on</span>
+                    Direcciones
+                </h2>
+
+                <!-- Origen -->
+                <div class="relative">
+                    <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Dirección de Origen</label>
+                    <input type="text" id="originAddress" placeholder="Ej: Av. Corrientes 1234, CABA"
+                           class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary"
+                           autocomplete="off"/>
+                    <div id="originSuggestions" class="suggestions absolute w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 hidden z-[1001]"></div>
+                    <div id="originComuna" class="text-xs text-gray-500 mt-1 hidden">Comuna detectada: <span class="font-semibold text-primary"></span></div>
+                </div>
+
+                <!-- Destino -->
+                <div class="relative">
+                    <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Dirección de Destino</label>
+                    <input type="text" id="destAddress" placeholder="Ej: Av. Santa Fe 5678, CABA"
+                           class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary"
+                           autocomplete="off"/>
+                    <div id="destSuggestions" class="suggestions absolute w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 hidden z-[1001]"></div>
+                    <div id="destComuna" class="text-xs text-gray-500 mt-1 hidden">Comuna detectada: <span class="font-semibold text-primary"></span></div>
+                </div>
+
+                <button id="swapBtn" class="w-full py-2 text-sm text-gray-600 hover:text-primary flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-lg hover:border-primary transition-colors">
+                    <span class="material-symbols-outlined text-sm">swap_vert</span>
+                    Intercambiar direcciones
+                </button>
+            </div>
+
+            <!-- Detalles del Paquete -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+                <h2 class="text-lg font-semibold text-primary flex items-center gap-2">
+                    <span class="material-symbols-outlined">package_2</span>
+                    Detalles del Paquete
+                </h2>
+
+                <div>
+                    <label class="text-xs font-semibold text-gray-500 uppercase mb-2 block">Tamaño</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="size" value="PEQUENIO" checked class="hidden peer"/>
+                            <div class="text-center p-3 border-2 border-gray-200 rounded-lg peer-checked:border-primary peer-checked:bg-blue-50 peer-checked:text-primary transition-all">
+                                <span class="material-symbols-outlined block mb-1">inventory_2</span>
+                                <div class="text-xs font-bold">PEQUEÑO</div>
+                                <div class="text-[10px] text-gray-500">Hasta 30x30x30cm</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="size" value="MEDIANO" class="hidden peer"/>
+                            <div class="text-center p-3 border-2 border-gray-200 rounded-lg peer-checked:border-primary peer-checked:bg-blue-50 peer-checked:text-primary transition-all">
+                                <span class="material-symbols-outlined block mb-1">package</span>
+                                <div class="text-xs font-bold">MEDIANO</div>
+                                <div class="text-[10px] text-gray-500">Hasta 50x50x50cm</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="size" value="GRANDE" class="hidden peer"/>
+                            <div class="text-center p-3 border-2 border-gray-200 rounded-lg peer-checked:border-primary peer-checked:bg-blue-50 peer-checked:text-primary transition-all">
+                                <span class="material-symbols-outlined block mb-1">move_to_inbox</span>
+                                <div class="text-xs font-bold">GRANDE</div>
+                                <div class="text-[10px] text-gray-500">Hasta 80x80x80cm</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="size" value="EXTRA_GRANDE" class="hidden peer"/>
+                            <div class="text-center p-3 border-2 border-gray-200 rounded-lg peer-checked:border-primary peer-checked:bg-blue-50 peer-checked:text-primary transition-all">
+                                <span class="material-symbols-outlined block mb-1">deployed_code</span>
+                                <div class="text-xs font-bold">X-GRANDE</div>
+                                <div class="text-[10px] text-gray-500">Más de 80cm</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Peso (kg)</label>
+                        <input type="number" id="weight" min="0.1" max="100" step="0.1" value="1"
+                               class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary"/>
+                    </div>
+                    <div class="flex items-end pb-3">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="fragile" class="w-5 h-5 text-primary rounded focus:ring-primary"/>
+                            <span class="text-sm font-medium">Frágil</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <button id="quoteBtn" class="w-full bg-secondary text-white font-bold py-4 rounded-xl shadow-lg hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                <span class="material-symbols-outlined">calculate</span>
+                COTIZAR ENVÍO
+            </button>
+
+            <!-- Resultados -->
+            <div id="resultsPanel" class="hidden bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-lg font-bold text-primary">Resultado</h3>
+                    <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold">ACTIVO</span>
+                </div>
+
+                <div class="space-y-3 mb-4">
+                    <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <span class="text-sm text-gray-600">Distancia real</span>
+                        <span id="resDist" class="font-bold text-primary">-- km</span>
+                    </div>
+                    <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <span class="text-sm text-gray-600">Tiempo estimado</span>
+                        <span id="resTime" class="font-bold text-primary">-- min</span>
+                    </div>
+                    <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <span class="text-sm text-gray-600">Tarifa base</span>
+                        <span id="resBase" class="font-bold">$ --</span>
+                    </div>
+                </div>
+
+                <div class="bg-primary text-white p-4 rounded-xl flex justify-between items-center mb-4">
+                    <div>
+                        <div class="text-xs opacity-80 uppercase">Total Estimado</div>
+                        <div id="resFinal" class="text-2xl font-bold">$ --</div>
+                    </div>
+                    <span class="material-symbols-outlined text-4xl">local_shipping</span>
+                </div>
+
+                <button class="w-full bg-primary text-white font-bold py-3 rounded-lg hover:opacity-90 transition-opacity">
+                    CREAR ENVÍO
+                </button>
+            </div>
+        </div>
+
+        <!-- Panel Derecho: Mapa -->
+        <div class="lg:col-span-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
+            <div id="map"></div>
+
+            <!-- Leyenda -->
+            <div class="absolute bottom-4 left-4 z-[500] bg-white/90 backdrop-blur p-4 rounded-lg shadow-lg border border-gray-200 text-sm space-y-2">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-blue-600 pulse-dot"></span>
+                    <span>Origen</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-orange-500 pulse-dot"></span>
+                    <span>Destino</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-0.5 bg-primary border-t border-dashed"></span>
+                    <span>Ruta calculada</span>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div id="routeLoading" class="route-loading hidden">
+                <div class="bg-white p-4 rounded-lg shadow-lg flex items-center gap-3">
+                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                    <span class="text-sm font-medium">Calculando ruta...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    // ==========================================
+    // CONFIGURACIÓN - AJUSTA A TU BACKEND SPRING
+    // ==========================================
+    const API_BASE_URL = 'http://localhost:8080/api'; // Tu backend Spring Boot
+    const USE_MOCK = true; // Cambiar a false cuando conectes tu backend
+
+    // ==========================================
+    // ESTADO
+    // ==========================================
+    let map, originMarker, destMarker, routeLine;
+    let originData = null; // {lat, lng, address, comuna}
+    let destData = null;
+    let debounceTimer;
+
+    // ==========================================
+    // INICIALIZACIÓN DEL MAPA
+    // ==========================================
+    function initMap() {
+        map = L.map('map', { scrollWheelZoom: false }).setView([-34.6037, -58.3816], 12);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Cargar límites de comunas de CABA (opcional, visual)
+        fetch('https://raw.githubusercontent.com/OpenDataCordoba/barrios/main/caba_barrios.geojson')
+            .then(res => res.json())
+            .then(data => {
+                L.geoJSON(data, {
+                    style: { fillColor: '#000666', weight: 1, color: 'white', fillOpacity: 0.05 },
+                    onEachFeature: (feature, layer) => {
+                        layer.bindTooltip(`Comuna ${feature.properties.COMUNA}`, { permanent: false });
+                    }
+                }).addTo(map);
+            });
+    }
+
+    // ==========================================
+    // GEOCODIFICACIÓN CON NOMINATIM (OpenStreetMap)
+    // ==========================================
+    async function searchAddress(query, type) {
+        if (query.length < 3) return;
+
+        // Limitar a CABA, Argentina para resultados más precisos
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', CABA, Argentina')}&limit=5&countrycodes=ar`;
+
+        try {
+            const response = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+            const data = await response.json();
+            showSuggestions(data, type);
+        } catch (err) {
+            console.error('Error en geocodificación:', err);
+        }
+    }
+
+    function showSuggestions(results, type) {
+        const container = document.getElementById(type === 'origin' ? 'originSuggestions' : 'destSuggestions');
+        container.innerHTML = '';
+
+        if (results.length === 0) {
+            container.classList.add('hidden');
+            return;
+        }
+
+        results.forEach(result => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item p-3 cursor-pointer border-b border-gray-100 text-sm';
+            div.innerHTML = `
+                <div class="font-medium text-gray-800">${result.display_name.split(',')[0]}</div>
+                <div class="text-xs text-gray-500 truncate">${result.display_name}</div>
+            `;
+            div.onclick = () => selectAddress(result, type);
+            container.appendChild(div);
+        });
+
+        container.classList.remove('hidden');
+    }
+
+    function selectAddress(result, type) {
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        const address = result.display_name;
+
+        // Detectar comuna desde el resultado o usar fallback
+        const comuna = detectComuna(result.display_name) || estimateComunaFromCoords(lat, lng);
+
+        const data = { lat, lng, address, comuna };
+
+        // Ocultar sugerencias
+        document.getElementById(type === 'origin' ? 'originSuggestions' : 'destSuggestions').classList.add('hidden');
+
+        // Actualizar input
+        document.getElementById(type === 'origin' ? 'originAddress' : 'destAddress').value = address.split(',')[0];
+
+        // Mostrar comuna detectada
+        const comunaDiv = document.getElementById(type === 'origin' ? 'originComuna' : 'destComuna');
+        comunaDiv.classList.remove('hidden');
+        comunaDiv.querySelector('span').textContent = comuna ? `Comuna ${comuna}` : 'No detectada';
+
+        // Guardar datos
+        if (type === 'origin') {
+            originData = data;
+            setMarker(lat, lng, 'origin');
+        } else {
+            destData = data;
+            setMarker(lat, lng, 'dest');
+        }
+
+        // Si tenemos ambos puntos, calcular ruta
+        if (originData && destData) {
+            calculateRoute();
+        }
+    }
+
+    // ==========================================
+    // DETECCIÓN DE COMUNA
+    // ==========================================
+    function detectComuna(address) {
+        // Buscar "Comuna X" en la dirección
+        const match = address.match(/Comuna\s*(\d{1,2})/i);
+        if (match) return match[1];
+
+        // Mapeo de barrios conocidos a comunas (simplificado)
+        const barrios = {
+            'retiro': '1', 'san nicolás': '1', 'puerto madero': '1', 'san telmo': '1', 'monserrat': '1', 'constitución': '1',
+            'recoleta': '2', 'balvanera': '3', 'san cristobal': '3', 'boca': '4', ' Barracas': '4', 'nueva pompeya': '4', 'parque patricios': '4',
+            'almagro': '5', 'boedo': '5', 'caballito': '6', 'flores': '7', 'parque chacabuco': '7',
+            'villa soldati': '8', 'villa riachuelo': '8', 'villa lugano': '8', 'liniers': '9', 'mataderos': '9', 'parque avellaneda': '9',
+            'villa real': '10', 'monte castro': '10', 'versalles': '10', 'floresta': '10', 'vélez sarsfield': '10', 'villa luro': '10',
+            'villa del parque': '11', 'villa devoto': '11', 'villa gral. mitre': '11', 'villa santa rita': '11', 'villa pueyrredón': '11',
+            'coghlan': '12', 'saavedra': '12', 'villa urquiza': '12', 'villa pueyrredón': '12',
+            'nuñez': '13', 'belgrano': '13', 'colegiales': '13', 'palermo': '14', 'chacarita': '15', 'villa crespo': '15', 'paternal': '15', 'villa ortúzar': '15'
+        };
+
+        const lowerAddr = address.toLowerCase();
+        for (const [barrio, comuna] of Object.entries(barrios)) {
+            if (lowerAddr.includes(barrio)) return comuna;
+        }
+
+        return null;
+    }
+
+    // Fallback: estimar comuna por coordenadas (centroides aproximados)
+    function estimateComunaFromCoords(lat, lng) {
+        const comunas = {
+            '1': [-34.615, -58.370], '2': [-34.590, -58.395], '3': [-34.605, -58.400],
+            '4': [-34.635, -58.375], '5': [-34.620, -58.420], '6': [-34.615, -58.440],
+            '7': [-34.630, -58.460], '8': [-34.675, -58.465], '9': [-34.660, -58.500],
+            '10': [-34.625, -58.505], '11': [-34.600, -58.490], '12': [-34.565, -58.485],
+            '13': [-34.555, -58.455], '14': [-34.575, -58.425], '15': [-34.590, -58.460]
+        };
+
+        let minDist = Infinity;
+        let closest = null;
+
+        for (const [num, coords] of Object.entries(comunas)) {
+            const dist = Math.sqrt(Math.pow(lat - coords[0], 2) + Math.pow(lng - coords[1], 2));
+            if (dist < minDist) {
+                minDist = dist;
+                closest = num;
+            }
+        }
+
+        return closest;
+    }
+
+    // ==========================================
+    // MARCADORES Y RUTAS
+    // ==========================================
+    function setMarker(lat, lng, type) {
+        const color = type === 'origin' ? '#2563eb' : '#f97316';
+        const icon = L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div style="background-color: ${color}; width: 16px; height: 16px; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);" class="pulse-dot"></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+        });
+
+        if (type === 'origin') {
+            if (originMarker) map.removeLayer(originMarker);
+            originMarker = L.marker([lat, lng], { icon }).addTo(map).bindPopup('📍 Origen').openPopup();
+        } else {
+            if (destMarker) map.removeLayer(destMarker);
+            destMarker = L.marker([lat, lng], { icon }).addTo(map).bindPopup('🎯 Destino').openPopup();
+        }
+
+        map.setView([lat, lng], 14);
+    }
+
+    async function calculateRoute() {
+        if (!originData || !destData) return;
+
+        document.getElementById('routeLoading').classList.remove('hidden');
+
+        try {
+            // Usar OSRM para ruta real (gratuito, no necesitas API key)
+            const url = `https://router.project-osrm.org/route/v1/driving/${originData.lng},${originData.lat};${destData.lng},${destData.lat}?overview=full&geometries=geojson`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.routes && data.routes[0]) {
+                const route = data.routes[0];
+
+                // Dibujar ruta
+                if (routeLine) map.removeLayer(routeLine);
+                routeLine = L.geoJSON(route.geometry, {
+                    style: { color: '#000666', weight: 4, opacity: 0.8 }
+                }).addTo(map);
+
+                // Ajustar vista
+                map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+
+                // Guardar distancia y tiempo para la cotización
+                originData.distance = (route.distance / 1000).toFixed(2); // km
+                originData.duration = Math.round(route.duration / 60); // minutos
+
+                // Actualizar UI con datos de ruta
+                document.getElementById('resDist').textContent = `${originData.distance} km`;
+                document.getElementById('resTime').textContent = `${originData.duration} min`;
+            }
+        } catch (err) {
+            console.error('Error calculando ruta:', err);
+            // Fallback: línea recta
+            if (routeLine) map.removeLayer(routeLine);
+            routeLine = L.polyline(
+                [[originData.lat, originData.lng], [destData.lat, destData.lng]],
+                { color: '#000666', weight: 3, dashArray: '5, 10' }
+            ).addTo(map);
+        } finally {
+            document.getElementById('routeLoading').classList.add('hidden');
+        }
+    }
+
+    // ==========================================
+    // COTIZACIÓN - INTEGRACIÓN CON SPRING BOOT
+    // ==========================================
+    async function getQuote() {
+        if (!originData || !destData) {
+            alert('Por favor selecciona origen y destino');
+            return;
+        }
+
+        const payload = {
+            originAddress: originData.address,
+            originComuna: originData.comuna,
+            originLat: originData.lat,
+            originLng: originData.lng,
+            destAddress: destData.address,
+            destComuna: destData.comuna,
+            destLat: destData.lat,
+            destLng: destData.lng,
+            size: document.querySelector('input[name="size"]:checked').value,
+            weight: parseFloat(document.getElementById('weight').value),
+            fragile: document.getElementById('fragile').checked,
+            distance: parseFloat(originData.distance || 0),
+            estimatedTime: originData.duration || 0
+        };
+
+        try {
+            let result;
+
+            if (USE_MOCK) {
+                // Simulación para desarrollo frontend
+                result = mockQuoteCalculation(payload);
+            } else {
+                // LLAMADA REAL A TU BACKEND SPRING
+                const response = await fetch(`${API_BASE_URL}/cotizacion`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // 'Authorization': 'Bearer ' + getToken() // Si usas JWT
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error('Error en la cotización');
+                result = await response.json();
+            }
+
+            showResults(result);
+
+        } catch (err) {
+            console.error('Error:', err);
+            alert('Error al cotizar. Verifica que tu backend esté corriendo.');
+        }
+    }
+
+    // Simulación de lógica de negocio (mueve esto a Java/Spring)
+    function mockQuoteCalculation(data) {
+        const basePrice = 800;
+        const sizeMultipliers = { PEQUENIO: 1, MEDIANO: 1.5, GRANDE: 2.5, EXTRA_GRANDE: 4 };
+        const weightPrice = data.weight * 60;
+        const distancePrice = (data.distance || 5) * 100;
+        const fragileExtra = data.fragile ? 350 : 0;
+        const urgencyFactor = 1.0; // Podrías agregar selector de urgencia
+
+        const subtotal = (basePrice + weightPrice + distancePrice + fragileExtra) * sizeMultipliers[data.size];
+        const finalPrice = subtotal * urgencyFactor;
+
+        return {
+            basePrice,
+            weightPrice,
+            distancePrice,
+            fragileExtra,
+            sizeMultiplier: sizeMultipliers[data.size],
+            distance: data.distance,
+            estimatedTime: data.estimatedTime,
+            finalPrice: Math.round(finalPrice),
+            currency: 'ARS'
+        };
+    }
+
+    function showResults(data) {
+        document.getElementById('resBase').textContent = `$ ${data.basePrice.toLocaleString()}`;
+        document.getElementById('resFinal').textContent = `$ ${data.finalPrice.toLocaleString()}`;
+        document.getElementById('resultsPanel').classList.remove('hidden');
+
+        // Scroll en móvil
+        if (window.innerWidth < 1024) {
+            document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth' });
+        }
+    }
+
+    // ==========================================
+    // EVENT LISTENERS
+    // ==========================================
+    document.getElementById('originAddress').addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => searchAddress(e.target.value, 'origin'), 500);
+    });
+
+    document.getElementById('destAddress').addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => searchAddress(e.target.value, 'dest'), 500);
+    });
+
+    // Cerrar sugerencias al hacer click fuera
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#originAddress')) document.getElementById('originSuggestions').classList.add('hidden');
+        if (!e.target.closest('#destAddress')) document.getElementById('destSuggestions').classList.add('hidden');
+    });
+
+    // Intercambiar direcciones
+    document.getElementById('swapBtn').addEventListener('click', () => {
+        const temp = originData;
+        originData = destData;
+        destData = temp;
+
+        const originInput = document.getElementById('originAddress');
+        const destInput = document.getElementById('destAddress');
+        const tempVal = originInput.value;
+        originInput.value = destInput.value;
+        destInput.value = tempVal;
+
+        if (originData) setMarker(originData.lat, originData.lng, 'origin');
+        if (destData) setMarker(destData.lat, destData.lng, 'dest');
+        if (originData && destData) calculateRoute();
+    });
+
+    // Cotizar
+    document.getElementById('quoteBtn').addEventListener('click', getQuote);
+
+    // Inicializar
+    initMap();
+</script>
+</body>
+</html>
