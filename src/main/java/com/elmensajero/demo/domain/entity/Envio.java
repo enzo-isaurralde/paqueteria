@@ -85,6 +85,7 @@ public class Envio {
     private String modificadoPor;
 
     // Historial de estados (relación uno a muchos)
+    @Builder.Default
     @OneToMany(mappedBy = "envio", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<HistorialEstado> historialEstados = new ArrayList<>();
 }
